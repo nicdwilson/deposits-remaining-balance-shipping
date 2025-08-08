@@ -1,0 +1,208 @@
+/**
+ * Shipping Calculator CSS for Deposits Remaining Balance Shipping
+ *
+ * @package deposits-remaining-balance-shipping
+ */
+
+.wc-deposits-rbs-shipping-section {
+    margin: 20px 0;
+    padding: 20px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #f9f9f9;
+}
+
+.wc-deposits-rbs-shipping-section h3 {
+    margin: 0 0 15px 0;
+    padding: 0;
+    font-size: 1.2em;
+    color: #333;
+}
+
+.wc-deposits-rbs-shipping-rates {
+    margin-bottom: 15px;
+}
+
+.wc-deposits-rbs-shipping-methods {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.wc-deposits-rbs-shipping-method {
+    margin: 0 0 10px 0;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fff;
+    transition: all 0.3s ease;
+}
+
+.wc-deposits-rbs-shipping-method:hover {
+    border-color: #0073aa;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.wc-deposits-rbs-shipping-method label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    margin: 0;
+}
+
+.wc-deposits-rbs-shipping-method-radio {
+    margin-right: 10px;
+}
+
+.wc-deposits-rbs-shipping-method-label {
+    flex: 1;
+    font-weight: 500;
+}
+
+.wc-deposits-rbs-shipping-method-cost {
+    font-weight: bold;
+    color: #0073aa;
+}
+
+.wc-deposits-rbs-shipping-total {
+    padding: 15px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    text-align: right;
+    font-size: 1.1em;
+}
+
+.wc-deposits-rbs-shipping-total strong {
+    margin-right: 10px;
+}
+
+.wc-deposits-rbs-no-shipping {
+    color: #666;
+    font-style: italic;
+    margin: 0;
+    padding: 10px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.wc-deposits-rbs-shipping-fields {
+    margin: 20px 0;
+    padding: 20px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #f9f9f9;
+}
+
+.wc-deposits-rbs-shipping-fields h3 {
+    margin: 0 0 15px 0;
+    padding: 0;
+    font-size: 1.2em;
+    color: #333;
+}
+
+.wc-deposits-rbs-shipping-address-fields {
+    margin-bottom: 15px;
+}
+
+.wc-deposits-rbs-shipping-address-fields .form-row {
+    margin: 0 0 15px 0;
+}
+
+.wc-deposits-rbs-shipping-address-fields label {
+    display: block;
+    margin: 0 0 5px 0;
+    font-weight: 500;
+    color: #333;
+}
+
+.wc-deposits-rbs-shipping-field {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.wc-deposits-rbs-shipping-field:focus {
+    outline: none;
+    border-color: #0073aa;
+    box-shadow: 0 0 0 1px #0073aa;
+}
+
+#wc-deposits-rbs-calculate-shipping {
+    background: #0073aa;
+    color: #fff;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background-color 0.3s ease;
+}
+
+#wc-deposits-rbs-calculate-shipping:hover {
+    background: #005a87;
+}
+
+#wc-deposits-rbs-calculate-shipping:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .wc-deposits-rbs-shipping-method label {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .wc-deposits-rbs-shipping-method-cost {
+        margin-top: 5px;
+    }
+    
+    .wc-deposits-rbs-shipping-total {
+        text-align: left;
+    }
+}
+
+/* Loading overlay styles */
+.wc-deposits-rbs-loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+}
+
+.wc-deposits-rbs-spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #0073aa;
+    border-radius: 50%;
+    animation: wc-deposits-rbs-spin 1s linear infinite;
+    margin-bottom: 15px;
+}
+
+.wc-deposits-rbs-loading-text {
+    color: #fff;
+    font-size: 16px;
+    font-weight: 500;
+    text-align: center;
+}
+
+@keyframes wc-deposits-rbs-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
