@@ -4,7 +4,7 @@
  * Requires Plugins: woocommerce, woocommerce-deposits
  * Plugin URI: https://example.com/deposits-remaining-balance-shipping
  * Description: Handles shipping costs for remaining balance payments on WooCommerce deposits and payment plans. Calculates and applies shipping costs when customers pay their remaining balance.
- * Version: 1.0.2
+ * Version: 1.0.3
  * Author: Your Name
  * Author URI: https://example.com
  * Text Domain: deposits-remaining-balance-shipping
@@ -28,7 +28,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Define plugin constants
-define( 'WC_DEPOSITS_RBS_VERSION', '1.0.2' );
+define( 'WC_DEPOSITS_RBS_VERSION', '1.0.3' );
 define( 'WC_DEPOSITS_RBS_FILE', __FILE__ );
 define( 'WC_DEPOSITS_RBS_PLUGIN_URL', untrailingslashit( plugins_url( '', WC_DEPOSITS_RBS_FILE ) ) );
 define( 'WC_DEPOSITS_RBS_PLUGIN_PATH', untrailingslashit( plugin_dir_path( WC_DEPOSITS_RBS_FILE ) ) );

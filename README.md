@@ -29,6 +29,12 @@ This plugin calculates and applies shipping costs when customers pay their remai
 
 ## Changelog
 
+### Version 1.0.3
+- **NEW**: Added support for shipping on final payment plan orders
+- **ADDED**: `is_final_payment_plan_order()` method to identify final payments in payment plans
+- **ENHANCED**: Shipping logic now distinguishes between regular and final payment plan orders
+- **IMPROVED**: Better payment plan schedule analysis and payment number extraction
+
 ### Version 1.0.2
 - **FIXED**: Refined payment plan order detection to prevent false positives on remaining balance orders
 - **IMPROVED**: More precise detection methods prioritizing order status over created_via

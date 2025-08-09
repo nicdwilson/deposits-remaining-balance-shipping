@@ -301,9 +301,40 @@ class WC_Deposits_RBS_Order_Identifier {
 		
 		$logger->info( 'Checking if order needs shipping calculation: ' . $order->get_id(), array( 'source' => 'deposits-remaining-balance-shipping' ) );
 		
-		// First, explicitly check if this is a payment plan order - these should never get shipping
+		// Check if this is a final payment plan order - these should get shipping
+		if ( self::is_final_payment_plan_order( $order ) ) {
+			$logger->info( 'Order is a final payment plan order, shipping calculation needed', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			
+			// Check if shipping was already paid with deposit
+			if ( self::was_shipping_paid_with_deposit( $order ) ) {
+				$logger->info( 'Shipping was already paid with deposit', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+				return false;
+			}
+			
+			// Check if the order has physical products that need shipping
+			$has_physical_products = false;
+			$item_count = 0;
+			foreach ( $order->get_items() as $item ) {
+				$item_count++;
+				$product = $item->get_product();
+				if ( $product ) {
+					$logger->info( 'Item ' . $item_count . ': Product ID ' . $product->get_id() . ', needs shipping: ' . ( $product->needs_shipping() ? 'yes' : 'no' ), array( 'source' => 'deposits-remaining-balance-shipping' ) );
+					if ( $product->needs_shipping() ) {
+						$has_physical_products = true;
+					}
+				} else {
+					$logger->warning( 'Item ' . $item_count . ': Product not found', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+				}
+			}
+			
+			$logger->info( 'Final payment plan order has ' . $item_count . ' items, physical products: ' . ( $has_physical_products ? 'yes' : 'no' ), array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			
+			return $has_physical_products;
+		}
+		
+		// Check if this is a regular payment plan order (not final) - these should not get shipping
 		if ( self::is_payment_plan_order( $order ) ) {
-			$logger->info( 'Order is a payment plan order, shipping calculation not needed', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			$logger->info( 'Order is a regular payment plan order (not final), shipping calculation not needed', array( 'source' => 'deposits-remaining-balance-shipping' ) );
 			return false;
 		}
 		
@@ -363,6 +394,7 @@ class WC_Deposits_RBS_Order_Identifier {
 			'created_via' => $order->get_created_via(),
 			'parent_order_id' => $order->get_parent_id(),
 			'is_payment_plan_order' => self::is_payment_plan_order( $order ),
+			'is_final_payment_plan_order' => self::is_final_payment_plan_order( $order ),
 			'is_remaining_balance_order' => self::is_remaining_balance_order( $order ),
 			'needs_shipping_calculation' => self::needs_shipping_calculation( $order ),
 			'items' => array(),
@@ -406,5 +438,101 @@ class WC_Deposits_RBS_Order_Identifier {
 		$logger->info( 'Order identification debug info: ' . json_encode( $debug_info ), array( 'source' => 'deposits-remaining-balance-shipping' ) );
 		
 		return $debug_info;
+	}
+
+	/**
+	 * Check if the order is the final payment in a payment plan
+	 *
+	 * @param WC_Order $order Order object
+	 * @return bool
+	 */
+	public static function is_final_payment_plan_order( $order ) {
+		$logger = wc_get_logger();
+		
+		if ( ! $order || ! is_object( $order ) || ! is_a( $order, 'WC_Order' ) ) {
+			return false;
+		}
+
+		$logger->info( 'Checking if order is final payment plan order: ' . $order->get_id(), array( 'source' => 'deposits-remaining-balance-shipping' ) );
+
+		// First, check if this is a payment plan order
+		if ( ! self::is_payment_plan_order( $order ) ) {
+			$logger->info( 'Order is not a payment plan order', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			return false;
+		}
+
+		// Get the parent order
+		$parent_order_id = $order->get_parent_id();
+		if ( ! $parent_order_id ) {
+			$logger->info( 'Order has no parent order ID', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			return false;
+		}
+
+		$parent_order = wc_get_order( $parent_order_id );
+		if ( ! $parent_order ) {
+			$logger->warning( 'Parent order not found: ' . $parent_order_id, array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			return false;
+		}
+
+		// Get the payment plan from the parent order
+		$payment_plan_id = null;
+		foreach ( $parent_order->get_items() as $item ) {
+			$plan_id = $item->get_meta( 'payment_plan' ) ?: $item->get_meta( '_payment_plan' );
+			if ( $plan_id ) {
+				$payment_plan_id = $plan_id;
+				break;
+			}
+		}
+
+		if ( ! $payment_plan_id ) {
+			$logger->info( 'No payment plan found in parent order', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			return false;
+		}
+
+		$logger->info( 'Payment plan ID: ' . $payment_plan_id, array( 'source' => 'deposits-remaining-balance-shipping' ) );
+
+		// Get the payment plan object
+		if ( ! class_exists( 'WC_Deposits_Plans_Manager' ) ) {
+			$logger->warning( 'WC_Deposits_Plans_Manager class not found', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			return false;
+		}
+
+		$payment_plan = WC_Deposits_Plans_Manager::get_plan( absint( $payment_plan_id ) );
+		if ( ! $payment_plan ) {
+			$logger->warning( 'Payment plan not found: ' . $payment_plan_id, array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			return false;
+		}
+
+		// Get the schedule to determine total number of payments
+		$schedule = $payment_plan->get_schedule();
+		$total_payments = count( $schedule );
+		$logger->info( 'Payment plan has ' . $total_payments . ' total payments', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+
+		// Extract the current payment number from the order item name
+		$current_payment_number = null;
+		foreach ( $order->get_items() as $item ) {
+			$item_name = $item->get_name();
+			$logger->info( 'Order item name: ' . $item_name, array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			
+			// Look for "Payment #X for" pattern
+			if ( preg_match( '/Payment #(\d+) for/', $item_name, $matches ) ) {
+				$current_payment_number = intval( $matches[1] );
+				$logger->info( 'Extracted payment number: ' . $current_payment_number, array( 'source' => 'deposits-remaining-balance-shipping' ) );
+				break;
+			}
+		}
+
+		if ( $current_payment_number === null ) {
+			$logger->warning( 'Could not extract payment number from order items', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			return false;
+		}
+
+		// Check if this is the final payment
+		// Payment numbers start at 2 (since 1 is the deposit), so final payment = total_payments
+		$is_final_payment = ( $current_payment_number === $total_payments );
+		
+		$logger->info( 'Current payment: ' . $current_payment_number . ', Total payments: ' . $total_payments . ', Is final: ' . ( $is_final_payment ? 'yes' : 'no' ), array( 'source' => 'deposits-remaining-balance-shipping' ) );
+		
+		return $is_final_payment;
 	}
 }
