@@ -27,6 +27,23 @@ This plugin calculates and applies shipping costs when customers pay their remai
 2. Activate the plugin through the 'Plugins' menu in WordPress
 3. Ensure WooCommerce and WooCommerce Deposits are installed and activated
 
+## Changelog
+
+### Version 1.0.2
+- **FIXED**: Refined payment plan order detection to prevent false positives on remaining balance orders
+- **IMPROVED**: More precise detection methods prioritizing order status over created_via
+- **ADDED**: Debug method for troubleshooting order identification issues
+- **ENHANCED**: Better logging and debugging capabilities
+
+### Version 1.0.1
+- **FIXED**: Payment plan orders are now correctly excluded from remaining balance shipping functionality
+- **ADDED**: New `is_payment_plan_order()` method to properly identify payment plan orders
+- **IMPROVED**: Enhanced logging for better debugging of order identification
+- **ENHANCED**: More robust detection of payment plan orders using multiple methods
+
+### Version 1.0.0
+- Initial release
+
 ## Development
 
 This plugin is currently in development. The main plugin file is located at:

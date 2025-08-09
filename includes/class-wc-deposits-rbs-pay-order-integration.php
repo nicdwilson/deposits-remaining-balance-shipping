@@ -114,6 +114,9 @@ class WC_Deposits_RBS_Pay_Order_Integration {
 		
 		$logger->info( 'Order found, checking if needs shipping calculation: ' . $order->get_id(), array( 'source' => 'deposits-remaining-balance-shipping' ) );
 		
+		// Debug order identification
+		WC_Deposits_RBS_Order_Identifier::debug_order_identification( $order );
+		
 		if ( ! WC_Deposits_RBS_Order_Identifier::needs_shipping_calculation( $order ) ) {
 			$logger->info( 'Order does not need shipping calculation', array( 'source' => 'deposits-remaining-balance-shipping' ) );
 			return;

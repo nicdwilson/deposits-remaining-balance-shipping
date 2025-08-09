@@ -30,6 +30,12 @@ class WC_Deposits_RBS_Order_Identifier {
 
 		$logger->info( 'Checking if order is remaining balance order: ' . $order->get_id(), array( 'source' => 'deposits-remaining-balance-shipping' ) );
 
+		// First, check if this is a payment plan order - these should be excluded
+		if ( self::is_payment_plan_order( $order ) ) {
+			$logger->info( 'Order is a payment plan order, excluding from remaining balance functionality', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			return false;
+		}
+
 		// Check if this is a follow-up order (remaining balance order)
 		// Use multiple methods to detect follow-up orders
 		$is_follow_up = false;
@@ -145,6 +151,89 @@ class WC_Deposits_RBS_Order_Identifier {
 	}
 
 	/**
+	 * Check if the order is a payment plan order (scheduled order created by deposits plugin)
+	 *
+	 * @param WC_Order $order Order object
+	 * @return bool
+	 */
+	public static function is_payment_plan_order( $order ) {
+		$logger = wc_get_logger();
+		
+		if ( ! $order || ! is_object( $order ) || ! is_a( $order, 'WC_Order' ) ) {
+			return false;
+		}
+
+		$logger->info( 'Checking if order is payment plan order: ' . $order->get_id(), array( 'source' => 'deposits-remaining-balance-shipping' ) );
+
+		// Method 1: Check if order has scheduled-payment status (this is the most reliable indicator)
+		$order_status = $order->get_status();
+		$logger->info( 'Order status: ' . $order_status, array( 'source' => 'deposits-remaining-balance-shipping' ) );
+		
+		if ( 'scheduled-payment' === $order_status ) {
+			$logger->info( 'Order has scheduled-payment status, treating as payment plan order', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			return true;
+		}
+
+		// Method 2: Check if parent order has payment plan items (more reliable than created_via)
+		$parent_order_id = $order->get_parent_id();
+		if ( $parent_order_id ) {
+			$parent_order = wc_get_order( $parent_order_id );
+			if ( $parent_order ) {
+				$logger->info( 'Checking parent order for payment plan items: ' . $parent_order_id, array( 'source' => 'deposits-remaining-balance-shipping' ) );
+				
+				foreach ( $parent_order->get_items() as $item ) {
+					$payment_plan_id = $item->get_meta( 'payment_plan' ) ?: $item->get_meta( '_payment_plan' );
+					if ( $payment_plan_id ) {
+						$logger->info( 'Parent order has payment plan item with ID: ' . $payment_plan_id . ', treating as payment plan order', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+						return true;
+					}
+				}
+				
+				$logger->info( 'Parent order has no payment plan items', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			} else {
+				$logger->warning( 'Parent order not found: ' . $parent_order_id, array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			}
+		} else {
+			$logger->info( 'Order has no parent order ID', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+		}
+
+		// Method 3: Check if current order items have payment plan meta
+		$logger->info( 'Checking current order items for payment plan meta', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+		foreach ( $order->get_items() as $item ) {
+			$payment_plan_id = $item->get_meta( 'payment_plan' ) ?: $item->get_meta( '_payment_plan' );
+			if ( $payment_plan_id ) {
+				$logger->info( 'Current order has payment plan item with ID: ' . $payment_plan_id . ', treating as payment plan order', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+				return true;
+			}
+		}
+
+		// Method 4: Only use created_via as a last resort, and be more specific
+		$created_via = $order->get_created_via();
+		$logger->info( 'Order created_via: ' . ( $created_via ? $created_via : 'none' ), array( 'source' => 'deposits-remaining-balance-shipping' ) );
+		
+		// Only treat as payment plan order if created_via is 'wc_deposits' AND order has pending-deposit status
+		// (This is a more conservative approach to avoid false positives)
+		if ( 'wc_deposits' === $created_via && 'pending-deposit' === $order_status ) {
+			// Double-check that this is actually a payment plan order by checking parent
+			if ( $parent_order_id ) {
+				$parent_order = wc_get_order( $parent_order_id );
+				if ( $parent_order ) {
+					foreach ( $parent_order->get_items() as $item ) {
+						$payment_plan_id = $item->get_meta( 'payment_plan' ) ?: $item->get_meta( '_payment_plan' );
+						if ( $payment_plan_id ) {
+							$logger->info( 'Order created via deposits with pending-deposit status and parent has payment plan, treating as payment plan order', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+							return true;
+						}
+					}
+				}
+			}
+		}
+
+		$logger->info( 'Order is not a payment plan order', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+		return false;
+	}
+
+	/**
 	 * Check if shipping was already paid during deposit
 	 *
 	 * @param WC_Order $order Order object
@@ -212,6 +301,12 @@ class WC_Deposits_RBS_Order_Identifier {
 		
 		$logger->info( 'Checking if order needs shipping calculation: ' . $order->get_id(), array( 'source' => 'deposits-remaining-balance-shipping' ) );
 		
+		// First, explicitly check if this is a payment plan order - these should never get shipping
+		if ( self::is_payment_plan_order( $order ) ) {
+			$logger->info( 'Order is a payment plan order, shipping calculation not needed', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			return false;
+		}
+		
 		// Check if this is a remaining balance order
 		if ( ! self::is_remaining_balance_order( $order ) ) {
 			$logger->info( 'Order is not a remaining balance order', array( 'source' => 'deposits-remaining-balance-shipping' ) );
@@ -247,5 +342,69 @@ class WC_Deposits_RBS_Order_Identifier {
 		$logger->info( 'Order has ' . $item_count . ' items, physical products: ' . ( $has_physical_products ? 'yes' : 'no' ), array( 'source' => 'deposits-remaining-balance-shipping' ) );
 
 		return $has_physical_products;
+	}
+
+	/**
+	 * Debug method to help troubleshoot order identification
+	 *
+	 * @param WC_Order $order Order object
+	 * @return array Debug information
+	 */
+	public static function debug_order_identification( $order ) {
+		$logger = wc_get_logger();
+		
+		if ( ! $order || ! is_object( $order ) || ! is_a( $order, 'WC_Order' ) ) {
+			return array( 'error' => 'Invalid order object' );
+		}
+
+		$debug_info = array(
+			'order_id' => $order->get_id(),
+			'order_status' => $order->get_status(),
+			'created_via' => $order->get_created_via(),
+			'parent_order_id' => $order->get_parent_id(),
+			'is_payment_plan_order' => self::is_payment_plan_order( $order ),
+			'is_remaining_balance_order' => self::is_remaining_balance_order( $order ),
+			'needs_shipping_calculation' => self::needs_shipping_calculation( $order ),
+			'items' => array(),
+		);
+
+		// Debug order items
+		foreach ( $order->get_items() as $item ) {
+			$item_debug = array(
+				'item_id' => $item->get_id(),
+				'product_id' => $item->get_product_id(),
+				'original_order_id' => $item->get_meta( '_original_order_id' ),
+				'payment_plan' => $item->get_meta( 'payment_plan' ) ?: $item->get_meta( '_payment_plan' ),
+				'is_deposit' => $item->get_meta( 'is_deposit' ) ?: $item->get_meta( '_is_deposit' ),
+			);
+			$debug_info['items'][] = $item_debug;
+		}
+
+		// Debug parent order if exists
+		if ( $order->get_parent_id() ) {
+			$parent_order = wc_get_order( $order->get_parent_id() );
+			if ( $parent_order ) {
+				$debug_info['parent_order'] = array(
+					'order_id' => $parent_order->get_id(),
+					'order_status' => $parent_order->get_status(),
+					'has_deposit' => class_exists( 'WC_Deposits_Order_Manager' ) ? WC_Deposits_Order_Manager::has_deposit( $parent_order ) : 'unknown',
+					'items' => array(),
+				);
+
+				foreach ( $parent_order->get_items() as $item ) {
+					$parent_item_debug = array(
+						'item_id' => $item->get_id(),
+						'product_id' => $item->get_product_id(),
+						'payment_plan' => $item->get_meta( 'payment_plan' ) ?: $item->get_meta( '_payment_plan' ),
+						'is_deposit' => $item->get_meta( 'is_deposit' ) ?: $item->get_meta( '_is_deposit' ),
+					);
+					$debug_info['parent_order']['items'][] = $parent_item_debug;
+				}
+			}
+		}
+
+		$logger->info( 'Order identification debug info: ' . json_encode( $debug_info ), array( 'source' => 'deposits-remaining-balance-shipping' ) );
+		
+		return $debug_info;
 	}
 }
