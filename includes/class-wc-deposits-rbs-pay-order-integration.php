@@ -51,6 +51,42 @@ class WC_Deposits_RBS_Pay_Order_Integration {
 		
 		// Add scripts and styles
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_scripts' ) );
+		
+		// Add AJAX handlers
+		add_action( 'wp_ajax_wc_deposits_rbs_get_states', array( $this, 'ajax_get_states' ) );
+		add_action( 'wp_ajax_nopriv_wc_deposits_rbs_get_states', array( $this, 'ajax_get_states' ) );
+		
+		// Handle shipping form submission
+		add_action( 'init', array( $this, 'handle_shipping_form_submission' ) );
+	}
+
+	/**
+	 * AJAX handler for getting states
+	 */
+	public function ajax_get_states() {
+		// Verify nonce
+		if ( ! wp_verify_nonce( $_POST['nonce'], 'wc_deposits_rbs_shipping_nonce' ) ) {
+			wp_send_json_error( __( 'Security check failed', 'deposits-remaining-balance-shipping' ) );
+		}
+
+		$country = sanitize_text_field( $_POST['country'] ?? '' );
+		
+		if ( empty( $country ) ) {
+			wp_send_json_error( __( 'Country is required', 'deposits-remaining-balance-shipping' ) );
+		}
+
+		$states = WC()->countries->get_states( $country );
+		
+		if ( empty( $states ) ) {
+			wp_send_json_success( '<option value="">' . __( 'No states available', 'deposits-remaining-balance-shipping' ) . '</option>' );
+		}
+
+		$html = '<option value="">' . __( 'Select a state', 'deposits-remaining-balance-shipping' ) . '</option>';
+		foreach ( $states as $code => $name ) {
+			$html .= '<option value="' . esc_attr( $code ) . '">' . esc_html( $name ) . '</option>';
+		}
+
+		wp_send_json_success( $html );
 	}
 
 	/**
@@ -67,42 +103,8 @@ class WC_Deposits_RBS_Pay_Order_Integration {
 			return;
 		}
 		
-		// Get order from URL parameters or global variable
-		$order = null;
-		
-		// Try to get order from global variable first
-		global $order;
-		if ( $order && is_object( $order ) && is_a( $order, 'WC_Order' ) ) {
-			$logger->info( 'Order found from global variable, ID: ' . $order->get_id(), array( 'source' => 'deposits-remaining-balance-shipping' ) );
-		} else {
-			// Try to get order from URL parameters or path
-			$order_id = 0;
-			
-			// Check query parameters first
-			if ( isset( $_GET['order_id'] ) ) {
-				$order_id = intval( $_GET['order_id'] );
-			} elseif ( isset( $_GET['order-pay'] ) ) {
-				$order_id = intval( $_GET['order-pay'] );
-			} else {
-				// Extract order ID from URL path
-				$current_url = $_SERVER['REQUEST_URI'];
-				if ( preg_match( '/\/checkout\/order-pay\/(\d+)/', $current_url, $matches ) ) {
-					$order_id = intval( $matches[1] );
-					$logger->info( 'Order ID extracted from URL path: ' . $order_id, array( 'source' => 'deposits-remaining-balance-shipping' ) );
-				}
-			}
-			
-			if ( $order_id ) {
-				$order = wc_get_order( $order_id );
-				if ( $order ) {
-					$logger->info( 'Order found from URL, ID: ' . $order->get_id(), array( 'source' => 'deposits-remaining-balance-shipping' ) );
-				} else {
-					$logger->warning( 'Order not found for ID: ' . $order_id, array( 'source' => 'deposits-remaining-balance-shipping' ) );
-				}
-			} else {
-				$logger->warning( 'No order ID found in URL', array( 'source' => 'deposits-remaining-balance-shipping' ) );
-			}
-		}
+		// Get order using multiple methods for reliability
+		$order = $this->get_order_from_context();
 		
 		// Ensure we have a valid order object
 		if ( ! $order || ! is_object( $order ) || ! is_a( $order, 'WC_Order' ) ) {
@@ -125,11 +127,6 @@ class WC_Deposits_RBS_Pay_Order_Integration {
 
 		$logger->info( 'Shipping rates count: ' . count( $shipping_rates ), array( 'source' => 'deposits-remaining-balance-shipping' ) );
 
-		if ( empty( $shipping_rates ) ) {
-			$logger->warning( 'No shipping rates available', array( 'source' => 'deposits-remaining-balance-shipping' ) );
-			//return;
-		}
-
 		// Include shipping section template
 		wc_get_template(
 			'pay-order-shipping.php',
@@ -142,7 +139,54 @@ class WC_Deposits_RBS_Pay_Order_Integration {
 		);
 	}
 
-
+	/**
+	 * Get order from various contexts
+	 *
+	 * @return WC_Order|false
+	 */
+	private function get_order_from_context() {
+		$logger = wc_get_logger();
+		
+		// Method 1: Try to get order from global variable first
+		global $order;
+		if ( $order && is_object( $order ) && is_a( $order, 'WC_Order' ) ) {
+			$logger->info( 'Order found from global variable, ID: ' . $order->get_id(), array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			return $order;
+		}
+		
+		// Method 2: Try to get order from URL parameters
+		$order_id = 0;
+		
+		// Check query parameters first
+		if ( isset( $_GET['order_id'] ) ) {
+			$order_id = intval( $_GET['order_id'] );
+			$logger->info( 'Order ID from order_id parameter: ' . $order_id, array( 'source' => 'deposits-remaining-balance-shipping' ) );
+		} elseif ( isset( $_GET['order-pay'] ) ) {
+			$order_id = intval( $_GET['order-pay'] );
+			$logger->info( 'Order ID from order-pay parameter: ' . $order_id, array( 'source' => 'deposits-remaining-balance-shipping' ) );
+		} else {
+			// Method 3: Extract order ID from URL path
+			$current_url = $_SERVER['REQUEST_URI'];
+			if ( preg_match( '/\/checkout\/order-pay\/(\d+)/', $current_url, $matches ) ) {
+				$order_id = intval( $matches[1] );
+				$logger->info( 'Order ID extracted from URL path: ' . $order_id, array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			}
+		}
+		
+		if ( $order_id ) {
+			$order = wc_get_order( $order_id );
+			if ( $order ) {
+				$logger->info( 'Order found from URL, ID: ' . $order->get_id(), array( 'source' => 'deposits-remaining-balance-shipping' ) );
+				return $order;
+			} else {
+				$logger->warning( 'Order not found for ID: ' . $order_id, array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			}
+		} else {
+			$logger->warning( 'No order ID found in URL', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+		}
+		
+		return false;
+	}
 
 	/**
 	 * Validate shipping selection before payment
@@ -161,7 +205,22 @@ class WC_Deposits_RBS_Pay_Order_Integration {
 			return;
 		}
 		
-		// Check if shipping method is selected
+		// Check if shipping is already present in the order
+		$has_shipping = false;
+		foreach ( $order->get_items( 'shipping' ) as $shipping_item ) {
+			if ( $shipping_item->get_total() > 0 ) {
+				$has_shipping = true;
+				break;
+			}
+		}
+		
+		// If shipping is already present, don't show validation error
+		if ( $has_shipping ) {
+			$logger->info( 'Order already has shipping, skipping validation', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			return;
+		}
+		
+		// Check if shipping method is selected in the form
 		$shipping_method = sanitize_text_field( $_POST['wc_deposits_rbs_shipping_method'] ?? '' );
 		$shipping_cost = floatval( $_POST['wc_deposits_rbs_shipping_cost'] ?? 0 );
 		
@@ -181,38 +240,8 @@ class WC_Deposits_RBS_Pay_Order_Integration {
 	public function add_shipping_hidden_fields() {
 		$logger = wc_get_logger();
 		
-		// Get order from URL parameters or global variable
-		$order = null;
-		
-		// Try to get order from global variable first
-		global $order;
-		if ( $order && is_object( $order ) && is_a( $order, 'WC_Order' ) ) {
-			$logger->info( 'Order found from global variable for hidden fields, ID: ' . $order->get_id(), array( 'source' => 'deposits-remaining-balance-shipping' ) );
-		} else {
-			// Try to get order from URL parameters or path
-			$order_id = 0;
-			
-			// Check query parameters first
-			if ( isset( $_GET['order_id'] ) ) {
-				$order_id = intval( $_GET['order_id'] );
-			} elseif ( isset( $_GET['order-pay'] ) ) {
-				$order_id = intval( $_GET['order-pay'] );
-			} else {
-				// Extract order ID from URL path
-				$current_url = $_SERVER['REQUEST_URI'];
-				if ( preg_match( '/\/checkout\/order-pay\/(\d+)/', $current_url, $matches ) ) {
-					$order_id = intval( $matches[1] );
-					$logger->info( 'Order ID extracted from URL path for hidden fields: ' . $order_id, array( 'source' => 'deposits-remaining-balance-shipping' ) );
-				}
-			}
-			
-			if ( $order_id ) {
-				$order = wc_get_order( $order_id );
-				if ( $order ) {
-					$logger->info( 'Order found from URL for hidden fields, ID: ' . $order->get_id(), array( 'source' => 'deposits-remaining-balance-shipping' ) );
-				}
-			}
-		}
+		// Get order using the improved detection method
+		$order = $this->get_order_from_context();
 		
 		// Ensure we have a valid order object
 		if ( ! $order || ! is_object( $order ) || ! is_a( $order, 'WC_Order' ) ) {
@@ -278,6 +307,90 @@ class WC_Deposits_RBS_Pay_Order_Integration {
 	}
 
 	/**
+	 * Handle shipping form submission
+	 */
+	public function handle_shipping_form_submission() {
+		if ( ! isset( $_POST['wc_deposits_rbs_update_shipping'] ) ) {
+			return;
+		}
+
+		$logger = wc_get_logger();
+		
+		// Verify nonce
+		if ( ! wp_verify_nonce( $_POST['wc_deposits_rbs_shipping_nonce'], 'wc_deposits_rbs_update_shipping' ) ) {
+			$logger->warning( 'Security check failed for shipping update', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			wc_add_notice( __( 'Security check failed', 'deposits-remaining-balance-shipping' ), 'error' );
+			return;
+		}
+
+		// Get order
+		$order = $this->get_order_from_context();
+		if ( ! $order ) {
+			$logger->error( 'Order not found for shipping update', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			wc_add_notice( __( 'Order not found', 'deposits-remaining-balance-shipping' ), 'error' );
+			return;
+		}
+
+		// Get shipping method and cost
+		$shipping_method = sanitize_text_field( $_POST['wc_deposits_rbs_shipping_method'] ?? '' );
+		$shipping_cost = 0;
+
+		// Find the cost for the selected method
+		$shipping_calculator = WC_Deposits_RBS_Shipping_Calculator::get_instance();
+		$shipping_rates = $shipping_calculator->calculate_shipping_for_order( $order );
+		
+		foreach ( $shipping_rates as $rate ) {
+			if ( $rate->id === $shipping_method ) {
+				$shipping_cost = $rate->cost;
+				break;
+			}
+		}
+
+		if ( empty( $shipping_method ) || $shipping_cost <= 0 ) {
+			$logger->warning( 'Invalid shipping method or cost', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			wc_add_notice( __( 'Please select a valid shipping method', 'deposits-remaining-balance-shipping' ), 'error' );
+			return;
+		}
+
+		try {
+			// Remove existing shipping line items
+			foreach ( $order->get_items( 'shipping' ) as $shipping_item ) {
+				$order->remove_item( $shipping_item->get_id() );
+			}
+
+			// Add new shipping line item
+			$shipping_item = new WC_Order_Item_Shipping();
+			$shipping_item->set_method_title( __( 'Remaining Balance Shipping', 'deposits-remaining-balance-shipping' ) );
+			$shipping_item->set_method_id( $shipping_method );
+			$shipping_item->set_total( $shipping_cost );
+
+			$order->add_item( $shipping_item );
+			$order->calculate_totals();
+			$order->save();
+
+			// Add order note
+			$order_note = sprintf(
+				/* translators: %s: shipping cost */
+				__( 'Shipping cost updated for remaining balance payment: %s', 'deposits-remaining-balance-shipping' ),
+				wc_price( $shipping_cost )
+			);
+			$order->add_order_note( $order_note );
+			
+			$logger->info( 'Shipping cost updated for order: ' . $order->get_id() . ' - Cost: ' . $shipping_cost, array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			
+			wc_add_notice( __( 'Shipping updated successfully', 'deposits-remaining-balance-shipping' ), 'success' );
+			
+			// Redirect to reload the page
+			wp_redirect( $order->get_checkout_payment_url() );
+			exit;
+			
+		} catch ( Exception $e ) {
+			$logger->error( 'Error updating shipping: ' . $e->getMessage(), array( 'source' => 'deposits-remaining-balance-shipping' ) );
+			wc_add_notice( __( 'Error updating shipping. Please try again.', 'deposits-remaining-balance-shipping' ), 'error' );
+		}
+	}
+
+	/**
 	 * Enqueue scripts and styles
 	 */
 	public function enqueue_scripts() {
@@ -287,38 +400,8 @@ class WC_Deposits_RBS_Pay_Order_Integration {
 
 		$logger = wc_get_logger();
 		
-		// Get order from URL parameters or global variable
-		$order = null;
-		
-		// Try to get order from global variable first
-		global $order;
-		if ( $order && is_object( $order ) && is_a( $order, 'WC_Order' ) ) {
-			$logger->info( 'Order found from global variable for scripts, ID: ' . $order->get_id(), array( 'source' => 'deposits-remaining-balance-shipping' ) );
-		} else {
-			// Try to get order from URL parameters or path
-			$order_id = 0;
-			
-			// Check query parameters first
-			if ( isset( $_GET['order_id'] ) ) {
-				$order_id = intval( $_GET['order_id'] );
-			} elseif ( isset( $_GET['order-pay'] ) ) {
-				$order_id = intval( $_GET['order-pay'] );
-			} else {
-				// Extract order ID from URL path
-				$current_url = $_SERVER['REQUEST_URI'];
-				if ( preg_match( '/\/checkout\/order-pay\/(\d+)/', $current_url, $matches ) ) {
-					$order_id = intval( $matches[1] );
-					$logger->info( 'Order ID extracted from URL path for scripts: ' . $order_id, array( 'source' => 'deposits-remaining-balance-shipping' ) );
-				}
-			}
-			
-			if ( $order_id ) {
-				$order = wc_get_order( $order_id );
-				if ( $order ) {
-					$logger->info( 'Order found from URL for scripts, ID: ' . $order->get_id(), array( 'source' => 'deposits-remaining-balance-shipping' ) );
-				}
-			}
-		}
+		// Get order using the improved detection method
+		$order = $this->get_order_from_context();
 		
 		// Ensure we have a valid order object
 		if ( ! $order || ! is_object( $order ) || ! is_a( $order, 'WC_Order' ) ) {
@@ -356,6 +439,8 @@ class WC_Deposits_RBS_Pay_Order_Integration {
 					'error' => __( 'Error calculating shipping', 'deposits-remaining-balance-shipping' ),
 					'calculate_shipping' => __( 'Calculate Shipping', 'deposits-remaining-balance-shipping' ),
 					'no_shipping' => __( 'No shipping options available for your location.', 'deposits-remaining-balance-shipping' ),
+					'select_state' => __( 'Select a state', 'deposits-remaining-balance-shipping' ),
+					'available_methods' => __( 'Available Shipping Methods', 'deposits-remaining-balance-shipping' ),
 				),
 			)
 		);

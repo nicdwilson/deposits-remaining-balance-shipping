@@ -31,7 +31,34 @@ class WC_Deposits_RBS_Order_Identifier {
 		$logger->info( 'Checking if order is remaining balance order: ' . $order->get_id(), array( 'source' => 'deposits-remaining-balance-shipping' ) );
 
 		// Check if this is a follow-up order (remaining balance order)
-		if ( ! WC_Deposits_Order_Manager::is_follow_up_order( $order ) ) {
+		// Use multiple methods to detect follow-up orders
+		$is_follow_up = false;
+		
+		// Method 1: Check if WooCommerce Deposits plugin is available and use its method
+		if ( class_exists( 'WC_Deposits_Order_Manager' ) ) {
+			$is_follow_up = WC_Deposits_Order_Manager::is_follow_up_order( $order );
+			$logger->info( 'Using WC_Deposits_Order_Manager::is_follow_up_order: ' . ( $is_follow_up ? 'yes' : 'no' ), array( 'source' => 'deposits-remaining-balance-shipping' ) );
+		}
+		
+		// Method 2: Check for parent order ID
+		if ( ! $is_follow_up && $order->get_parent_id() ) {
+			$is_follow_up = true;
+			$logger->info( 'Order has parent ID, treating as follow-up order', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+		}
+		
+		// Method 3: Check for original order ID in items
+		if ( ! $is_follow_up ) {
+			foreach ( $order->get_items() as $item ) {
+				$original_order_id = $item->get_meta( '_original_order_id' );
+				if ( $original_order_id ) {
+					$is_follow_up = true;
+					$logger->info( 'Found original_order_id in item, treating as follow-up order', array( 'source' => 'deposits-remaining-balance-shipping' ) );
+					break;
+				}
+			}
+		}
+		
+		if ( ! $is_follow_up ) {
 			$logger->info( 'Order is not a follow-up order', array( 'source' => 'deposits-remaining-balance-shipping' ) );
 			return false;
 		}
@@ -50,8 +77,8 @@ class WC_Deposits_RBS_Order_Identifier {
 			$item_data = $item->get_data();
 			$logger->info( 'Item ' . $item_count . ' data: ' . json_encode( $item_data ), array( 'source' => 'deposits-remaining-balance-shipping' ) );
 			
-			// Check for deposit meta
-			$is_deposit_meta = $item->get_meta( 'is_deposit' );
+			// Check for deposit meta using multiple possible keys
+			$is_deposit_meta = $item->get_meta( 'is_deposit' ) || $item->get_meta( '_is_deposit' );
 			$logger->info( 'Item ' . $item_count . ' is_deposit meta: ' . ( $is_deposit_meta ? 'yes' : 'no' ), array( 'source' => 'deposits-remaining-balance-shipping' ) );
 			
 			// Check for original order ID (indicates this is a remaining balance item)
@@ -64,16 +91,23 @@ class WC_Deposits_RBS_Order_Identifier {
 				$is_deposit = true;
 				$logger->info( 'Item ' . $item_count . ': treating as deposit due to original_order_id', array( 'source' => 'deposits-remaining-balance-shipping' ) );
 			} else {
-				// Convert item to array format expected by deposits plugin
-				$item_array = array(
-					'type' => $item->get_type(),
-					'is_deposit' => $item->get_meta( 'is_deposit' ),
-					'payment_plan' => $item->get_meta( 'payment_plan' ),
-				);
-				$logger->info( 'Item ' . $item_count . ' array: ' . json_encode( $item_array ), array( 'source' => 'deposits-remaining-balance-shipping' ) );
-				
-				$is_deposit = WC_Deposits_Order_Item_Manager::is_deposit( $item_array );
-				$logger->info( 'Item ' . $item_count . ': is_deposit = ' . ( $is_deposit ? 'yes' : 'no' ), array( 'source' => 'deposits-remaining-balance-shipping' ) );
+				// Try to use WooCommerce Deposits plugin classes if available
+				if ( class_exists( 'WC_Deposits_Order_Item_Manager' ) ) {
+					// Convert item to array format expected by deposits plugin
+					$item_array = array(
+						'type' => $item->get_type(),
+						'is_deposit' => $item->get_meta( 'is_deposit' ) || $item->get_meta( '_is_deposit' ),
+						'payment_plan' => $item->get_meta( 'payment_plan' ) || $item->get_meta( '_payment_plan' ),
+					);
+					$logger->info( 'Item ' . $item_count . ' array: ' . json_encode( $item_array ), array( 'source' => 'deposits-remaining-balance-shipping' ) );
+					
+					$is_deposit = WC_Deposits_Order_Item_Manager::is_deposit( $item_array );
+					$logger->info( 'Item ' . $item_count . ': is_deposit = ' . ( $is_deposit ? 'yes' : 'no' ), array( 'source' => 'deposits-remaining-balance-shipping' ) );
+				} else {
+					// Fallback: check for deposit meta directly
+					$is_deposit = $is_deposit_meta;
+					$logger->info( 'Item ' . $item_count . ': using fallback deposit detection: ' . ( $is_deposit ? 'yes' : 'no' ), array( 'source' => 'deposits-remaining-balance-shipping' ) );
+				}
 			}
 			
 			if ( $is_deposit ) {
@@ -81,12 +115,12 @@ class WC_Deposits_RBS_Order_Identifier {
 				
 				// Check if this item has a payment plan
 				$payment_plan = null;
-				if ( isset( $item_array ) ) {
+				if ( class_exists( 'WC_Deposits_Order_Item_Manager' ) && isset( $item_array ) ) {
 					$payment_plan = WC_Deposits_Order_Item_Manager::get_payment_plan( $item_array );
 				} else {
 					// For items with original_order_id, check payment plan meta directly
-					$payment_plan_id = $item->get_meta( 'payment_plan' );
-					if ( $payment_plan_id ) {
+					$payment_plan_id = $item->get_meta( 'payment_plan' ) ?: $item->get_meta( '_payment_plan' );
+					if ( $payment_plan_id && class_exists( 'WC_Deposits_Plans_Manager' ) ) {
 						$payment_plan = WC_Deposits_Plans_Manager::get_plan( absint( $payment_plan_id ) );
 					}
 				}
